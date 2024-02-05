@@ -91,12 +91,96 @@ static void TestCalcThrottleIs100WhenMax() {
    ASSERT(throtVal ==  100);
 }
 
-static void TestCalcThrottleIs100WhenOverMax() {
+// CHECK AND LIMIT RANGE
+static void TestLimitAndCalcThrottleIs100WhenOverMax() {
    //deadzone is first 5% of travel between 100 and 4000
-   float throtVal = Throttle::CalcThrottle(4001, 0, false);
-   ASSERT(throtVal ==  100);
+   int potVal = 4001;
+   Throttle::CheckAndLimitRange(&potVal, 0);
+   ASSERT(Throttle::CalcThrottle(potVal, 0, false) ==  100);
 }
 
+static void TestLimitThrottleRangeReturnsTrueInRangeWithSlack() {
+   // POT_SLACK is defined in throttle.cpp - matching value of +/- 200 here. TODO: shared constant?
+   int potVal = 4000 + 200;
+   bool inRange = Throttle::CheckAndLimitRange(&potVal, 0);
+   ASSERT(inRange);
+
+   potVal = 100 - 200;
+   inRange = Throttle::CheckAndLimitRange(&potVal, 0);
+   ASSERT(inRange);
+
+   potVal = 2386;
+   inRange = Throttle::CheckAndLimitRange(&potVal, 0);
+   ASSERT(inRange);
+}
+
+static void TestLimitThrottleRangeReturnsFalseOutsideRangeWithSlack() {
+   // POT_SLACK is defined in throttle.cpp - matching value of +/- 200 here. TODO: shared constant?
+   int potVal = 6000;
+   bool inRange = Throttle::CheckAndLimitRange(&potVal, 0);
+   ASSERT(!inRange);
+
+   potVal = 4001 + 200;
+   inRange = Throttle::CheckAndLimitRange(&potVal, 0);
+   ASSERT(!inRange);
+
+   potVal = 99 - 200;
+   inRange = Throttle::CheckAndLimitRange(&potVal, 0);
+   ASSERT(!inRange);
+
+   potVal = -1234;
+   inRange = Throttle::CheckAndLimitRange(&potVal, 0);
+   ASSERT(!inRange);
+}
+
+static void TestLimitThrottleRangeLimitsToPotMaxWhenOver() {
+   int potVal = 4001;
+   Throttle::CheckAndLimitRange(&potVal, 0);
+   ASSERT(potVal == 4000);
+}
+
+static void TestLimitThrottleRangeLimitsToPotMinWhenOverSlack() {
+   // POT_SLACK is defined in throttle.cpp - matching value of +/- 200 here. TODO: shared constant?
+   int potVal = 4001 + 200;
+   Throttle::CheckAndLimitRange(&potVal, 0);
+   ASSERT(potVal == 100);
+}
+
+static void TestLimitThrottleRangeLimitsToPotMinWhenUnder() {
+   int potVal = 99;
+   Throttle::CheckAndLimitRange(&potVal, 0);
+   ASSERT(potVal == 100);
+}
+
+static void TestLimitThrottleRangeUnchangedWhenInRange() {
+   int potVal = 1234;
+   Throttle::CheckAndLimitRange(&potVal, 0);
+   ASSERT(potVal == 1234);
+}
+
+// NORMALIZE THROTTLE
+static void TestNormalizeThrottle0WhenIdxNotInBounds() {
+   ASSERT(Throttle::NormalizeThrottle(1234, -1) == 0);
+   ASSERT(Throttle::NormalizeThrottle(1234, -5) == 0);
+   ASSERT(Throttle::NormalizeThrottle(1234, 2) == 0);
+   ASSERT(Throttle::NormalizeThrottle(1234, 6) == 0);
+}
+
+static void TestNormalizeThrottle0WhenMinEqualsMax() {
+   Throttle::potmin[0] = 1234;
+   Throttle::potmax[0] = 1234;
+
+   ASSERT(Throttle::NormalizeThrottle(1234, 0) == 0);
+   
+   Throttle::potmin[0] = 100;
+   Throttle::potmax[0] = 4000;
+}
+
+static void TestNormalizeThrottle() {
+   ASSERT(Throttle::NormalizeThrottle(100, 0) == 0);
+   ASSERT(Throttle::NormalizeThrottle(1234, 0) - 31.64102564f < 0.00001f); // float imprecision workaround
+   ASSERT(Throttle::NormalizeThrottle(4000, 0) == 100);
+}
 
 void ThrottleTest::RunTest()
 {
@@ -110,5 +194,14 @@ void ThrottleTest::RunTest()
    TestCalcThrottleIs0WhenInDeadZone();
    TestCalcThrottleIsAbove0WhenJustOutOfDeadZone();
    TestCalcThrottleIs100WhenMax();
-   TestCalcThrottleIs100WhenOverMax();
+   TestLimitAndCalcThrottleIs100WhenOverMax();
+   TestLimitThrottleRangeReturnsTrueInRangeWithSlack();
+   TestLimitThrottleRangeReturnsFalseOutsideRangeWithSlack();
+   TestLimitThrottleRangeLimitsToPotMaxWhenOver();
+   TestLimitThrottleRangeLimitsToPotMinWhenOverSlack();
+   TestLimitThrottleRangeLimitsToPotMinWhenUnder();
+   TestLimitThrottleRangeUnchangedWhenInRange();
+   TestNormalizeThrottle0WhenIdxNotInBounds();
+   TestNormalizeThrottle0WhenMinEqualsMax();
+   TestNormalizeThrottle();
 }
