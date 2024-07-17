@@ -40,7 +40,7 @@
 #include "cansdo.h"
 #include "leafinv.h"
 #include "isa_shunt.h"
-#include "Can_E39.h"
+#include "BMW_E39.h"
 #include "BMW_E65.h"
 #include "subaruvehicle.h"
 #include "Can_OI.h"
@@ -80,14 +80,20 @@
 #include "BMW_E31.h"
 #include "shifter.h"
 #include "F30_Lever.h"
+#include "JLR_G1.h"
+#include "JLR_G2.h"
 #include "no_Lever.h"
-#include "VWheater.h"
+#include "CPC.h"
+#include "NoInverter.h"
 #include "linbus.h"
+#include "VWheater.h"
+#include "ElconCharger.h"
+#include "rearoutlanderinverter.h"
+#include "NoVehicle.h"
 
 #define PRECHARGE_TIMEOUT 5  //5s
 
 #define PRINT_JSON 0
-
 
 typedef union {
     struct {
