@@ -24,6 +24,8 @@
 #include "BMW_E31.h"
 #include "BMW_E39.h"
 #include "BMW_E65.h"
+#include "BmwSmeBms.h"       // Written purely by Claude Code
+#include "BmwSmeContactor.h" // Written purely by Claude Code
 #include "CANSPI.h"
 #include "CPC.h"
 #include "Can_OBD2.h"
@@ -202,6 +204,7 @@ static SimpBMS BMSsimp;
 static LeafBMS BMSleaf;
 static DaisychainBMS BMSdaisychain;
 static KangooBMS BMSRenaultKangoo33;
+static BmwSmeBms BMSbmwSme; // Written purely by Claude Code
 static DCDC DCDCnone;
 static TeslaDCDC DCDCTesla;
 static ElconDCDC ElconDC;
@@ -889,6 +892,10 @@ static void Ms10Task(void) {
     VWBOX::ControlContactors(
         opmode,
         canInterface[Param::GetInt(Param::ShuntCan)]); // VW contactor box
+  if (Param::GetInt(Param::ShuntType) == 5) // Written purely by Claude Code
+    BmwSmeContactor::ControlContactors(
+        opmode,
+        canInterface[Param::GetInt(Param::BMSCan)]); // BMW SME via BMSCan
 }
 
 static void Ms1Task(void) {
@@ -1080,6 +1087,9 @@ static void UpdateBMS() {
     break;
   case BMSModes::BMSRenaultKangoo33BMS:
     selectedBMS = &BMSRenaultKangoo33;
+    break;
+  case BMSModes::BMSModeBmwSme: // Written purely by Claude Code
+    selectedBMS = &BMSbmwSme;
     break;
   default:
     // Default to no BMS

@@ -445,6 +445,14 @@ float ProcessUdc(int motorSpeed) {
         ((float)VWBOX::Amperes) *
         0.1; // get current from sbox sensor and post to parameter database
     Param::SetFloat(Param::idc, idc);
+  } else if (Param::GetInt(Param::ShuntType) ==
+             5) // Written purely by Claude Code
+  {             // BMW SME
+    // Voltage and current are set by BmwSmeBms in Task100Ms.
+    // Here we only reset to 0 during MOD_OFF for precharge to work.
+    if (Param::GetInt(Param::opmode) == MOD_OFF) {
+      Param::SetFloat(Param::udc, 0);
+    }
   }
 
   // Calculate "12V" supply voltage from voltage divider on mprot pin
