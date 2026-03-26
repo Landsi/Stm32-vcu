@@ -126,6 +126,23 @@ next precharge check could pass immediately without actual precharge.
 **Fix:** Added ShuntType == 5 case that resets `udc` to 0 during MOD_OFF.
 All other voltage/current updates are handled by BmwSmeBms in Task100Ms.
 
+**Issue 3: Emergency Flags Check Permanently Blocks Charging**
+- **Problem:** `MaxChargeCurrent()` checked `(emergencyFlags & 0x0F) != 0` on byte 6 of 0x112. The normal settled value of byte 6 is 0xF9, whose lower nibble is 0x09 (non-zero). This caused `MaxChargeCurrent()` to always return 0, permanently blocking charging.
+- **Root cause:** Emergency flags byte 6 uses BMW 2-bit enums where 01 = "not active" — the lower nibble is never 0x00 in normal operation. Cross-reference with clio-leaf confidence assessment confirmed this.
+- **Fix:** Replaced with contactor open request check from byte 5 bits [7:6]. Normal value is 0x01 ("not active"); 0x02 = "active" (SME requesting contactors open). Added `contactorOpenRequest` member variable.
+
+**Issue 4: SOC Reports 255% in Standalone Mode**
+- **Problem:** 0x432 byte 4 (display SOC) is always 0xFF in standalone mode — SME knows SOC via UDS but doesn't broadcast it. Code unconditionally set `SOC = 255`.
+- **Fix:** Added `soc != 0xFF` validity check. Additionally, UDS DID 0xDDC4 (SOC at 0.01% resolution) added to the UDS poll rotation as the primary SOC source.
+
+**Issue 5: 0x40D Discharge Power Reports 196 kW When Invalid**
+- **Problem:** 0x40D bytes 2-3 contain 0xFFFC in standalone mode (invalid sentinel). Code computed `65532 × 3 / 1000 = 196 kW` for BMS_MaxOutput.
+- **Fix:** Added invalid sentinel filter — values >= 0xFFF0 are skipped.
+
+**Issue 6: Missing Contactor Startup Delay**
+- **Problem:** Battery-Emulator sends 0x00 (open) for 160 cycles (3.2 s at 20 ms) before allowing contactor close. Implementation sent 0x10 (close) immediately on MOD_PRECHARGE, which could be rejected by SME.
+- **Fix:** Added `startupCycles` counter in BmwSmeContactor that forces 0x00 for first 160 sends.
+
 ### Protocol Verification
 
 | Check | Result |
@@ -160,7 +177,7 @@ All other voltage/current updates are handled by BmwSmeBms in Task100Ms.
 | Reports BMS_Isolation | Yes (Ohm) | No | Yes (flag) | Yes |
 | Timeout with fallback | Yes (udcsw=500) | No | Yes (udcsw=500) | Yes |
 | Sends CAN in Task100Ms | Yes (0x423) | No | Yes (0x12F, UDS) | Yes |
-| MaxChargeCurrent with safety | Yes | Base default | Yes (timeout+emergency) | Yes |
+| MaxChargeCurrent with safety | Yes | Base default | Yes (timeout+contactor open request) | Yes |
 | DeInit resets all state | N/A | N/A | Yes | Yes |
 | Works without ShuntType | N/A | Yes (ShuntType=0) | Yes (ShuntType=0) | Yes |
 
@@ -183,15 +200,17 @@ All other voltage/current updates are handled by BmwSmeBms in Task100Ms.
    sub-function is documented but not implemented (needs bench testing).
    CCS ISO interaction behavior is unknown.
 
-5. **UDS DID byte ordering unverified** — Response endianness assumed
+5. **Emergency flags (byte 6) semantics unverified** — The lower nibble of 0x112 byte 6 is 0x09 in normal operation. The 2-bit field layout (bits [1:0] "open instantly", bits [3:2] "open fast") is from Battery-Emulator but has never been verified against a fault scenario. The contactor open request (byte 5 bits [7:6]) is used instead for charge-blocking safety.
+
+6. **UDS DID byte ordering unverified** — Response endianness assumed
    big-endian based on Battery-Emulator reference. Needs verification
    against CAN logs.
 
-6. **CRC table unverified against logs** — SAE J1850 ZERO CRC with init
+7. **CRC table unverified against logs** — SAE J1850 ZERO CRC with init
    0x3F is from Battery-Emulator. Should be verified against captured
    0x10B/0x12F frames from a working SME.
 
-7. **Test suite pre-existing failure** — `make Test` fails on master due to
+8. **Test suite pre-existing failure** — `make Test` fails on master due to
    unrelated vtable linker errors in test infrastructure. Not caused by
    these changes.
 

@@ -34,15 +34,15 @@
  * Contactor control (0x10B) is handled by BmwSmeContactor (ShuntType).
  *
  * CAN message map:
- *   RX 0x112 (20ms)  - Pack current, emergency flags
+ *   RX 0x112 (20ms)  - Pack current, contactor open request, emergency flags
  *   RX 0x1FA (1s)    - ISO status, temperatures, system health
  *   RX 0x2F5 (100ms) - Charge/discharge limits
  *   RX 0x40D (1s)    - Available charge/discharge power
  *   RX 0x431 (200ms) - ISO measurement status, energy content
- *   RX 0x432 (200ms) - SOC, operating mode
- *   RX 0x607         - UDS responses (voltage, etc.)
+ *   RX 0x432 (200ms) - SOC broadcast, operating mode
+ *   RX 0x607         - UDS responses (voltage, SOC, routine control)
  *   TX 0x12F (100ms) - Terminal status keepalive
- *   TX 0x6F1         - UDS requests (voltage polling)
+ *   TX 0x6F1         - UDS requests (voltage + SOC polling, ISO control)
  */
 
 // SAE J1850 ZERO CRC8 lookup table
@@ -124,7 +124,8 @@ void BmwSmeBms::DecodeCAN(int id, uint8_t *data) {
 // Byte 6: emergency flags
 void BmwSmeBms::handle112(uint8_t *data) {
   int16_t raw = (int16_t)((data[1] << 8) | data[0]);
-  packCurrent = raw - 8192; // deciAmps, positive = charge
+  packCurrent = raw - 8192;                     // deciAmps, positive = charge
+  contactorOpenRequest = (data[5] >> 6) & 0x03; // bits [7:6]
   emergencyFlags = data[6];
 }
 
@@ -172,27 +173,40 @@ void BmwSmeBms::handle432(uint8_t *data) { soc = data[4]; }
 
 // 0x607: UDS response from SME
 // Extended addressing: byte 0 = source address (0xF1 from SME)
-// Byte 1: ISO-TP single frame PCI (0x05 = 5 data bytes)
-// Bytes 2+: service response data
+// Byte 1: ISO-TP single frame PCI
+// Byte 2: service ID (0x62 = ReadDataByIdentifier, 0x71 = RoutineControl)
+// Bytes 3+: service-specific data
 void BmwSmeBms::handle607(uint8_t *data) {
   // Verify extended address from SME
   if (data[0] != 0xF1)
     return;
 
-  // Check for positive response to ReadDataByIdentifier (0x62)
-  if (data[2] != 0x62)
-    return;
+  uint8_t serviceId = data[2];
 
-  uint16_t did = (uint16_t)((data[3] << 8) | data[4]);
-  uint16_t value = (uint16_t)((data[5] << 8) | data[6]);
+  if (serviceId == 0x62) {
+    // ReadDataByIdentifier positive response
+    uint16_t did = (uint16_t)((data[3] << 8) | data[4]);
+    uint16_t value = (uint16_t)((data[5] << 8) | data[6]);
 
-  switch (did) {
-  case 0xDDB4: // Pre-contactor voltage (0.1V resolution)
-    batteryVoltage = (float)value * 0.1f;
-    break;
-  case 0xDD66: // Post-contactor voltage (0.1V resolution)
-    postContactorVoltage = (float)value * 0.1f;
-    break;
+    switch (did) {
+    case 0xDDB4: // Pre-contactor voltage (0.1V resolution)
+      batteryVoltage = (float)value * 0.1f;
+      break;
+    case 0xDD66: // Post-contactor voltage (0.1V resolution)
+      postContactorVoltage = (float)value * 0.1f;
+      break;
+    case 0xDDC4: // SOC (0.01% resolution)
+      udsSoc = (float)value / 100.0f;
+      break;
+    }
+  } else if (serviceId == 0x71) {
+    // RoutineControl positive response
+    // Format: F1 [PCI] 71 [subFunc] [routineHi] [routineLo] [status] [fault]
+    uint16_t routineId = (uint16_t)((data[4] << 8) | data[5]);
+    if (routineId == 0xAD61) {
+      // ISO measurement routine: subFunc 0x01=started, 0x02=stopped
+      isoActive = (data[3] == 0x01);
+    }
   }
 }
 
@@ -230,6 +244,32 @@ void BmwSmeBms::sendUdsRequest(uint16_t did) {
   can->Send(0x6F1, (uint32_t *)frame, 8);
 }
 
+// Send UDS RoutineControl to start or stop SME isolation measurement.
+// Routine 0xAD61: subFunc 0x01 = startRoutine, 0x02 = stopRoutine.
+// Used to suppress false ISO faults during CCS DC fast charging.
+void BmwSmeBms::sendIsoControl(bool enable) {
+  uint8_t frame[8] = {0};
+  frame[0] = 0x07;                 // Extended addressing: target SME
+  frame[1] = 0x04;                 // Single frame, 4 data bytes
+  frame[2] = 0x31;                 // RoutineControl service
+  frame[3] = enable ? 0x01 : 0x02; // startRoutine or stopRoutine
+  frame[4] = 0xAD;                 // Routine ID high byte
+  frame[5] = 0x61;                 // Routine ID low byte
+  can->Send(0x6F1, (uint32_t *)frame, 8);
+}
+
+// Check if a CCS DC fast charging session is active.
+// Returns true when i3LIM or Foccci interface reports an active CCS state.
+bool BmwSmeBms::isCcsCharging() {
+  int chgInterface = Param::GetInt(Param::interface);
+  if (chgInterface != ChargeInterfaces::i3LIM &&
+      chgInterface != ChargeInterfaces::Foccci)
+    return false;
+
+  int ccsState = Param::GetInt(Param::CCS_COND);
+  return (ccsState >= CCS_READY && ccsState <= CCS_INSULATION);
+}
+
 void BmwSmeBms::Task100Ms() {
   // Decrement timeout counter
   if (timeoutCounter > 0)
@@ -238,13 +278,19 @@ void BmwSmeBms::Task100Ms() {
   // Send terminal status keepalive
   sendKeepalive12F();
 
-  // Poll voltage via UDS, alternating between pre and post contactor
-  if (udsPollState == 0) {
+  // Poll UDS DIDs: pre-contactor V, post-contactor V, SOC (each every 300ms)
+  switch (udsPollState) {
+  case 0:
     sendUdsRequest(0xDDB4); // Pre-contactor voltage
-  } else {
+    break;
+  case 1:
     sendUdsRequest(0xDD66); // Post-contactor voltage
+    break;
+  case 2:
+    sendUdsRequest(0xDDC4); // SOC (0.01% resolution)
+    break;
   }
-  udsPollState = (udsPollState + 1) % 2;
+  udsPollState = (udsPollState + 1) % 3;
 
   // Set voltage parameters
   // udc2 = pre-contactor (battery) voltage
@@ -260,8 +306,13 @@ void BmwSmeBms::Task100Ms() {
   // Set current (deciAmps to Amps)
   float currentAmps = (float)packCurrent / 10.0f;
 
-  // Set SOC
-  Param::SetFloat(Param::SOC, (float)soc);
+  // Set SOC: prefer UDS DID 0xDDC4 (0.01% resolution, works in standalone),
+  // fall back to 0x432 byte 4 broadcast (0xFF = invalid in standalone mode)
+  if (udsSoc >= 0) {
+    Param::SetFloat(Param::SOC, udsSoc);
+  } else if (soc != 0xFF) {
+    Param::SetFloat(Param::SOC, (float)soc);
+  }
 
   // Set temperatures
   Param::SetFloat(Param::BMS_Tmin, (float)tempMin);
@@ -270,11 +321,27 @@ void BmwSmeBms::Task100Ms() {
   // Set charge/discharge limits
   Param::SetInt(Param::BMS_ChargeLim, MaxChargeCurrent());
 
-  // Set power limits (x3 W to kW)
-  Param::SetInt(Param::BMS_MaxInput,
-                (int)((float)chargePowerShort * 3.0f / 1000.0f));
-  Param::SetInt(Param::BMS_MaxOutput,
-                (int)((float)dischargePowerShort * 3.0f / 1000.0f));
+  // Set power limits (x3 W to kW), skip invalid sentinels (0xFFFC/0xFFFF)
+  if (chargePowerShort < 0xFFF0) {
+    Param::SetInt(Param::BMS_MaxInput,
+                  (int)((float)chargePowerShort * 3.0f / 1000.0f));
+  }
+  if (dischargePowerShort < 0xFFF0) {
+    Param::SetInt(Param::BMS_MaxOutput,
+                  (int)((float)dischargePowerShort * 3.0f / 1000.0f));
+  }
+
+  // CCS ISO management: stop SME isolation measurement during DC fast charging.
+  // The charger's PE connection invalidates the S-Box ISO measurement, causing
+  // false faults. UDS routine 0xAD61 controls the measurement.
+  bool ccsNow = isCcsCharging();
+  if (ccsNow && !wasCcsCharging) {
+    sendIsoControl(false); // Stop ISO measurement for CCS session
+  }
+  if (!ccsNow && wasCcsCharging) {
+    sendIsoControl(true); // Restart ISO measurement after CCS
+  }
+  wasCcsCharging = ccsNow;
 
   // Isolation monitoring: check 0x1FA flags
   // Byte 0 bits [1:0] = ISO error external, bits [3:2] = ISO error internal
@@ -287,7 +354,8 @@ void BmwSmeBms::Task100Ms() {
   bool isoFault =
       (isoExternal == 0x02) || (isoInternal == 0x02) || (isoWarning == 0x02);
 
-  if (isoFault) {
+  // Suppress ISO faults during CCS — charger PE connection invalidates reading
+  if (isoFault && !ccsNow) {
     Param::SetInt(Param::BMS_Isolation, 0); // 0 = fault
   } else {
     Param::SetInt(Param::BMS_Isolation, 9999); // OK (no kOhm value without
@@ -310,8 +378,10 @@ float BmwSmeBms::MaxChargeCurrent() {
   if (timeoutCounter < 1)
     return 0;
 
-  // No charge if emergency flags set (bits [1:0] or [3:2] = open contactors)
-  if ((emergencyFlags & 0x0F) != 0)
+  // No charge if SME requests contactor open (byte 5 bits [7:6] = 0x02 active)
+  // Note: emergencyFlags (byte 6) semantics are unverified — normal settled
+  // value 0xF9 has non-zero lower nibble, so cannot be used as a fault check.
+  if (contactorOpenRequest == 0x02)
     return 0;
 
   // Return SME-reported max charge current (deciAmps to Amps)
@@ -331,6 +401,10 @@ void BmwSmeBms::DeInit() {
   isoStatusByte0 = 0;
   isoStatusByte2 = 0;
   emergencyFlags = 0;
+  contactorOpenRequest = 0;
+  udsSoc = -1.0f;
+  isoActive = true;
+  wasCcsCharging = false;
   aliveCounter12F = 0;
   udsPollState = 0;
 }

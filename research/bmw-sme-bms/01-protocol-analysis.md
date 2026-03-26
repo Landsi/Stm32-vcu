@@ -256,7 +256,7 @@ Most conversion setups power the SME directly, avoiding the need for wakeup.
 
 ### SAE J1850 ZERO (for SME messages 0x10B, 0x12F)
 
-Polynomial: 0x1D, init: 0x3F, final XOR: 0xFF (verify)
+Polynomial: 0x1D, init: 0x3F, no final XOR
 
 Standard SAE J1850 CRC8 lookup table. **Different** from the Maxim/Dallas CRC8
 (poly 0x31) used by the S-Box external bus (0x100 message in existing bmw_sbox.cpp).
@@ -303,8 +303,8 @@ protocol use different polynomials.
 
 | Parameter | Source | Usage |
 |-----------|--------|-------|
-| udc | UDS DID 0xDDB4 | Pre-contactor pack voltage (0.1V resolution) |
-| udc2 | UDS DID 0xDD66 | Post-contactor voltage (0.1V resolution) |
+| udc | UDS DID 0xDD66 | Post-contactor voltage (DC link, 0.1V resolution) |
+| udc2 | UDS DID 0xDDB4 | Pre-contactor pack voltage (0.1V resolution) |
 | idc | 0x112 bytes 0-1 | Pack current (deciAmps → A) |
 | SOC | 0x432 byte 4 | Display SOC % |
 | BMS_Tmin | 0x1FA byte 6 | Cell temp min: `byte - 50` °C |
@@ -312,7 +312,7 @@ protocol use different polynomials.
 | BMS_ChargeLim | 0x2F5 bytes 2-3 | Max charge current from SME |
 | BMS_MaxInput | 0x40D bytes 0-1 | Short-term charge power (×3 W, ÷1000 → kW) |
 | BMS_MaxOutput | 0x40D bytes 2-3 | Short-term discharge power (×3 W, ÷1000 → kW) |
-| BMS_Isolation | 0x1FA byte 0/2 | Mapped from ISO status flags (0=fault, 1=OK) |
+| BMS_Isolation | 0x1FA byte 0/2 | Mapped from ISO status flags (0=fault, 9999=OK) |
 | BMS_Vmin | — | Not available without multi-frame UDS (DID 0xDFA0) |
 | BMS_Vmax | — | Not available without multi-frame UDS (DID 0xDFA0) |
 

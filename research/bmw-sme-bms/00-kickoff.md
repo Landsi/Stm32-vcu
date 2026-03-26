@@ -136,6 +136,8 @@ and leverages existing S-Box hardware that users with BMW PHEV batteries already
 have. The S-Box external bus is always active regardless of SME control. Add a
 read-only S-Box ShuntType that doesn't send contactor commands.
 
+**Update:** Implementation proceeded with a single CAN bus approach (effectively Option B simplified). The S-Box external bus was confirmed to be physically inside the battery box and inaccessible. Voltage is obtained via single-frame UDS polling (DIDs 0xDDB4 and 0xDD66), which was simpler than expected — no ISO-TP needed. See 02-implementation-plan.md for the final architecture.
+
 ## Data Gaps and Open Questions
 
 1. **SME CRC polynomial:** RN-003 says SAE J1850 ZERO (init 0x3F). Existing S-Box

@@ -50,6 +50,8 @@ public:
 private:
   static uint8_t aliveCounter;
   static uint8_t sendDivider;
+  static uint16_t startupCycles; // counts up to STARTUP_MIN_CYCLES before
+                                 // allowing contactor close
   static uint8_t calcCrc(const uint8_t *data, uint8_t len);
 };
 

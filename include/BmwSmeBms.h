@@ -34,8 +34,10 @@
  *
  * This class handles the SME's external CAN protocol:
  *   - Receives broadcast messages for current, temps, SOC, limits, ISO status
- *   - Polls pack voltage via single-frame UDS requests (no ISO-TP needed)
+ *   - Polls pack voltage and SOC via single-frame UDS requests (no ISO-TP
+ * needed)
  *   - Sends 0x12F terminal status keepalive (100ms)
+ *   - Manages ISO measurement during CCS charging (UDS routine 0xAD61)
  *
  * Contactor control (0x10B keepalive at 20ms) is handled separately by
  * BmwSmeContactor (ShuntType) for timing reasons.
@@ -61,6 +63,8 @@ private:
   void handle607(uint8_t *data);
   void sendKeepalive12F();
   void sendUdsRequest(uint16_t did);
+  void sendIsoControl(bool enable);
+  bool isCcsCharging();
 
   static uint8_t calcCrc(const uint8_t *data, uint8_t len);
 
@@ -81,9 +85,13 @@ private:
   uint8_t isoStatusByte2 = 0;       // raw 0x1FA byte 2
   uint8_t isoMeasStatus = 0;        // from 0x431 byte 0 bits [3:2]
   uint8_t emergencyFlags = 0;       // from 0x112 byte 6
+  uint8_t contactorOpenRequest = 0; // from 0x112 byte 5 bits [7:6]
+  float udsSoc = -1.0f;             // SOC from UDS DID 0xDDC4 (0.01% res)
+  bool isoActive = true;            // tracks SME ISO measurement state
+  bool wasCcsCharging = false;      // edge detection for CCS transitions
   int timeoutCounter = 0;
   uint8_t aliveCounter12F = 0; // 0-14
-  uint8_t udsPollState = 0;    // alternates between voltage DIDs
+  uint8_t udsPollState = 0;    // cycles through UDS DIDs (0-2)
 };
 
 #endif // BMWSMEBMS_H

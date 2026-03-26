@@ -37,6 +37,11 @@
 
 uint8_t BmwSmeContactor::aliveCounter = 0;
 uint8_t BmwSmeContactor::sendDivider = 0;
+uint16_t BmwSmeContactor::startupCycles = 0;
+
+// Battery-Emulator sends 0x00 for 160 cycles (3.2 s at 20 ms) before allowing
+// contactor close. This gives the SME time to initialize after wakeup.
+static const uint16_t STARTUP_MIN_CYCLES = 160;
 
 // SAE J1850 ZERO CRC8 lookup table (same as BmwSmeBms)
 static const uint8_t smeContCrcTable[256] = {
@@ -97,6 +102,13 @@ void BmwSmeContactor::ControlContactors(int opmode, CanHardware *can) {
   default:
     contactorCmd = 0x00;
     break;
+  }
+
+  // Force open for first STARTUP_MIN_CYCLES sends (3.2 s) so the SME can
+  // initialize after wakeup, matching Battery-Emulator startup sequence.
+  if (startupCycles < STARTUP_MIN_CYCLES) {
+    contactorCmd = 0x00;
+    startupCycles++;
   }
 
   uint8_t frame[8] = {0};
