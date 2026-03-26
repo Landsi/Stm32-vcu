@@ -284,8 +284,8 @@ void BmwSmeBms::Task100Ms() {
   uint8_t isoInternal = (isoStatusByte0 >> 2) & 0x03;
   uint8_t isoWarning = (isoStatusByte2 >> 6) & 0x03;
 
-  bool isoFault = (isoExternal == 0x02) || (isoInternal == 0x02) ||
-                  (isoWarning == 0x02);
+  bool isoFault =
+      (isoExternal == 0x02) || (isoInternal == 0x02) || (isoWarning == 0x02);
 
   if (isoFault) {
     Param::SetInt(Param::BMS_Isolation, 0); // 0 = fault

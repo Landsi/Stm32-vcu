@@ -82,8 +82,8 @@ private:
   uint8_t isoMeasStatus = 0;        // from 0x431 byte 0 bits [3:2]
   uint8_t emergencyFlags = 0;       // from 0x112 byte 6
   int timeoutCounter = 0;
-  uint8_t aliveCounter12F = 0;      // 0-14
-  uint8_t udsPollState = 0;         // alternates between voltage DIDs
+  uint8_t aliveCounter12F = 0; // 0-14
+  uint8_t udsPollState = 0;    // alternates between voltage DIDs
 };
 
 #endif // BMWSMEBMS_H
