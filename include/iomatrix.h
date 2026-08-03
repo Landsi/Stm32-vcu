@@ -84,7 +84,7 @@ private:
   static DigIo *const paramToPin[numPins];
 
   static AnaIn *functionToPinAnalgoue[LAST_ANAL];
-  static const int numAnaloguePins = 3;
+  static const int numAnaloguePins = 2; // GP_analog1, GP_analog2
   static AnaIn *const paramToPinAnalgue[numAnaloguePins];
 };
 

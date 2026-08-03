@@ -35,30 +35,36 @@ DigIo *IOMatrix::functionToPinIn[];
 DigIo *IOMatrix::functionToPinOut[];
 
 void IOMatrix::AssignFromParams() {
-  for (int i = 0; i < 8; i++) {
+  // The reset loops are indexed by function, not by pin. Every function must
+  // end up pointing at a real DigIo object, otherwise GetPinOut()/GetPinIn()
+  // hands out a null pointer and Set()/Clear() dereferences it.
+  for (int i = 0; i < LAST_IN; i++) {
     functionToPinIn[i] = &DigIo::dummypin;
   }
 
-  for (int i = 8; i < numPins; i++) {
+  for (int i = 0; i < LAST_OUT; i++) {
     functionToPinOut[i] = &DigIo::dummypin;
   }
 
-  for (int i = 0; i < 8; i++) // First orignal IO pin params
+  for (int i = 0; i < 8; i++) // Out1..Out3, SL1, SL2, PWM1..PWM3
   {
-    functionToPinOut[Param::GetInt((Param::PARAM_NUM)(FIRST_IO_PARAM + i))] =
-        paramToPin[i]; // Hard coded so hard coded bodge to fix
+    int func = Param::GetInt((Param::PARAM_NUM)(FIRST_IO_PARAM + i));
+    if (func > NONEOUT && func < LAST_OUT)
+      functionToPinOut[func] = paramToPin[i];
   }
 
-  for (int i = 8; i < 10; i++) // First orignal IO pin params
+  for (int i = 8; i < 10; i++) // gp_12Vin, HV_req
   {
-    functionToPinIn[Param::GetInt((Param::PARAM_NUM)(FIRST_IO_PARAM + i))] =
-        paramToPin[i]; // Hard coded so hard coded bodge to fix
+    int func = Param::GetInt((Param::PARAM_NUM)(FIRST_IO_PARAM + i));
+    if (func > NONEIN && func < LAST_IN)
+      functionToPinIn[func] = paramToPin[i];
   }
 
   for (int i = 10; i < numPins; i++) // PB1 PB2 PB3 params
   {
-    functionToPinIn[Param::GetInt((Param::PARAM_NUM)(SEC_IO_PARAM + i - 10))] =
-        paramToPin[i]; // Hard coded so hard coded bodge to fix
+    int func = Param::GetInt((Param::PARAM_NUM)(SEC_IO_PARAM + i - 10));
+    if (func > NONEIN && func < LAST_IN)
+      functionToPinIn[func] = paramToPin[i];
   }
 }
 
@@ -70,7 +76,8 @@ void IOMatrix::AssignFromParamsAnalogue() {
   }
 
   for (int i = 0; i < numAnaloguePins; i++) {
-    functionToPinAnalgoue[Param::GetInt(
-        (Param::PARAM_NUM)(FIRST_AI_PARAM + i))] = paramToPinAnalgue[i];
+    int func = Param::GetInt((Param::PARAM_NUM)(FIRST_AI_PARAM + i));
+    if (func > NONE_ANAL && func < LAST_ANAL)
+      functionToPinAnalgoue[func] = paramToPinAnalgue[i];
   }
 }
