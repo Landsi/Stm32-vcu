@@ -26,7 +26,7 @@
    2. Temporary parameters (id = 0)
    3. Display values
  */
-// Next param id (increase when adding new parameter!): 157
+// Next param id (increase when adding new parameter!): 158
 /*              category     name         unit       min     max     default id
  */
 #define PARAM_LIST                                                             \
@@ -88,6 +88,7 @@
   PARAM_ENTRY(CAT_CRUISE, cruiseramp, "rpm/100ms", 1, 1000, 20, 30)            \
   PARAM_ENTRY(CAT_CRUISE, regenlevel, "", 0, 3, 2, 31)                         \
   PARAM_ENTRY(CAT_CONTACT, udcsw, "V", 0, 1000, 330, 32)                       \
+  PARAM_ENTRY(CAT_CONTACT, InvChgPwr, ONOFF, 0, 1, 0, 157)                     \
   PARAM_ENTRY(CAT_CONTACT, cruiselight, ONOFF, 0, 1, 0, 33)                    \
   PARAM_ENTRY(CAT_CONTACT, errlights, ERRLIGHTS, 0, 255, 0, 34)                \
   PARAM_ENTRY(CAT_COMM, CAN3Speed, CAN3SPD, 0, 2, 0, 77)                       \

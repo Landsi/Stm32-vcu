@@ -591,6 +591,25 @@ static void ControlCabHeater(int opmode) {
   }
 }
 
+/*
+ * Decides whether the inverter power output (inv_out) is energised while we
+ * are bringing up / holding HV for a charge session.
+ *
+ * The inverter is normally left unpowered during charging. The one historic
+ * exception is "no shunt fitted + Leaf inverter", where the inverter is the
+ * only source of dc link voltage and therefore has to be alive for precharge
+ * to ever complete. That made inv_out behave differently in charge mode
+ * depending on ShuntType, which is surprising for anyone whose harness hangs
+ * off the inverter power relay. InvChgPwr makes it an explicit choice.
+ */
+static bool InverterPowerInCharge() {
+  if (Param::GetInt(Param::InvChgPwr) == 1)
+    return true; // user asked for inverter power during charge
+
+  // Shunt 0 + Leaf: precharge relies on the inverter reporting dc link voltage
+  return (Param::GetInt(Param::ShuntType) == 0) && (selectedInverter == &leafInv);
+}
+
 static void Ms10Task(void) {
   static uint32_t vehicleStartTime = 0;
 
@@ -748,10 +767,7 @@ static void Ms10Task(void) {
       if (selectedInverter != &openInv)
         DigIo::inv_out.Set(); // inverter power on but not if we are in charge
                               // mode and not if OI
-    } else if ((Param::GetInt(Param::ShuntType) == 0) &&
-               selectedInverter == &leafInv) // Shunt 0 + Leaf is precharge
-                                             // using leaf inverter voltage
-    {
+    } else if (InverterPowerInCharge()) {
       DigIo::inv_out.Set(); // inverter power on
     }
     IOMatrix::GetPinOut(IOMatrix::NEGCONTACTOR)->Set();
@@ -819,6 +835,13 @@ static void Ms10Task(void) {
                 // prevent too many contactors pulling amps at the same time
     if (rlyDly == 0) {
       DigIo::dcsw_out.Set();
+    }
+    // Drive inv_out explicitly here rather than relying on it being latched
+    // from precharge, so its state in charge mode is deterministic.
+    if (InverterPowerInCharge()) {
+      DigIo::inv_out.Set();
+    } else {
+      DigIo::inv_out.Clear();
     }
     ErrorMessage::UnpostAll();
     if (!chargeMode) {
